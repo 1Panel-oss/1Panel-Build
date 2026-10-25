@@ -8,8 +8,8 @@ on:
 
 jobs:
   build-offline-installer:
-    name: Build Offline Installer (${{ matrix.arch }})
-    runs-on: ubuntu-latest
+    name: Build Offline Installer (linux/${{ matrix.arch }})
+    runs-on: ubuntu-24.04
     strategy:
       matrix:
         arch: [amd64, arm64]
@@ -32,9 +32,9 @@ jobs:
         uses: actions/cache@v4
         with:
           path: 1Panel-source/frontend/node_modules
-          key: ${{ runner.os }}-node-${{ hashFiles('1Panel-source/frontend/package-lock.json') }}
+          key: ${{ runner.os }}-${{ matrix.arch }}-node-${{ hashFiles('1Panel-source/frontend/package-lock.json') }}
           restore-keys: |
-            ${{ runner.os }}-node-
+            ${{ runner.os }}-${{ matrix.arch }}-node-
 
       - name: Build binaries
         run: |
@@ -45,12 +45,9 @@ jobs:
           ./scripts/build.sh --goos linux --goarch ${{ matrix.arch }}
 
       - name: Package offline installer
-        env:
-          PANEL_SRC: 1Panel-source
-          INSTALLER_SRC: installer-source
         run: |
-          if [ ! -d "${INSTALLER_SRC}/.git" ]; then \
-            git clone --depth 1 --branch v2 https://github.com/1Panel-dev/installer.git ${INSTALLER_SRC}; \
+          if [ ! -d "installer-source/.git" ]; then \
+            git clone --depth 1 --branch v2 https://github.com/1Panel-dev/installer.git installer-source; \
           fi
           chmod +x scripts/release.sh
           ./scripts/release.sh --goos linux --goarch ${{ matrix.arch }} --no-iptables

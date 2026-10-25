@@ -12,14 +12,10 @@ on:
         default: ''
         type: string
 
-env:
-  GO_VERSION: '1.27'
-  NODE_VERSION: '22'
-
 jobs:
   build-and-package:
-    name: Build (${{ matrix.arch }})
-    runs-on: ubuntu-latest
+    name: Build (linux/${{ matrix.arch }})
+    runs-on: ubuntu-24.04
     strategy:
       matrix:
         arch: [amd64, arm64]
@@ -31,35 +27,36 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: ${{ env.GO_VERSION }}
+          go-version: '1.27'
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: ${{ env.NODE_VERSION }}
+          node-version: '22'
 
-      - name: Determine version
-        id: version
-        run: |
-          if [ "${{ github.event_name }}" = "push" ]; then
-            echo "VERSION=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
-          elif [ -n "${{ inputs.version }}" ]; then
-            echo "VERSION=${{ inputs.version }}" >> "$GITHUB_OUTPUT"
-          else
-            echo "VERSION=latest" >> "$GITHUB_OUTPUT"
-          fi
+      - name: Cache frontend deps
+        uses: actions/cache@v4
+        with:
+          path: 1Panel-source/frontend/node_modules
+          key: ${{ runner.os }}-${{ matrix.arch }}-node-${{ hashFiles('1Panel-source/frontend/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ matrix.arch }}-node-
 
       - name: Build binaries
         run: |
-          git clone --depth 1 --branch dev-v2 https://github.com/1Panel-dev/1Panel.git 1Panel-source
+          if [ ! -d "1Panel-source/.git" ]; then \
+            git clone --depth 1 --branch dev-v2 https://github.com/1Panel-dev/1Panel.git 1Panel-source; \
+          fi
           chmod +x scripts/build.sh
-          ./scripts/build.sh --goos linux --goarch ${{ matrix.arch }} --version "${{ steps.version.outputs.VERSION }}"
+          ./scripts/build.sh --goos linux --goarch ${{ matrix.arch }} --version "${{ github.ref_name || inputs.version || 'latest' }}"
 
       - name: Package offline installer
         run: |
-          git clone --depth 1 --branch v2 https://github.com/1Panel-dev/installer.git installer-source
+          if [ ! -d "installer-source/.git" ]; then \
+            git clone --depth 1 --branch v2 https://github.com/1Panel-dev/installer.git installer-source; \
+          fi
           chmod +x scripts/release.sh
-          ./scripts/release.sh --goos linux --goarch ${{ matrix.arch }} --version "${{ steps.version.outputs.VERSION }}" --no-iptables
+          ./scripts/release.sh --goos linux --goarch ${{ matrix.arch }} --version "${{ github.ref_name || inputs.version || 'latest' }}" --no-iptables
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -71,7 +68,7 @@ jobs:
   publish-release:
     name: Publish Release
     needs: build-and-package
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     if: startsWith(github.ref, 'refs/tags/v')
     permissions:
       contents: write
