@@ -122,24 +122,36 @@ log_ok "Install files assembled at: $PACK_DIR"
 if [ "$INCLUDE_DOCKER" = "true" ]; then
     log_step "Step 2/4: Download offline Docker binaries"
 
-    DOCKER_VERSION="28.3.3"
-    DOCKER_URL="https://download.docker.com/linux/static/stable/${GOARCH}/docker-${DOCKER_VERSION}.tgz"
+    DOCKER_VERSION="27.5.1"
+    # Map GOARCH to Docker static download path naming
+    DOCKER_ARCH=""
+    case "$GOARCH" in
+        amd64)  DOCKER_ARCH="x86_64" ;;
+        arm64)  DOCKER_ARCH="aarch64" ;;
+        *)      DOCKER_ARCH="$GOARCH" ;;
+    esac
+    DOCKER_URL="https://download.docker.com/linux/static/stable/${DOCKER_ARCH}/docker-${DOCKER_VERSION}.tgz"
     DOCKER_DIR="$PACK_DIR/docker"
 
     mkdir -p "$DOCKER_DIR"
 
-    log_info "Downloading Docker ${DOCKER_VERSION} (${GOARCH})..."
+    log_info "Downloading Docker ${DOCKER_VERSION} (${GOARCH} -> ${DOCKER_ARCH})..."
     log_info "URL: $DOCKER_URL"
 
+    DOWNLOAD_OK=false
     if command -v curl &>/dev/null; then
-        curl -fsSL "$DOCKER_URL" -o "/tmp/docker-${DOCKER_VERSION}.tgz"
+        if curl -fsSL --retry 3 --retry-delay 5 "$DOCKER_URL" -o "/tmp/docker-${DOCKER_VERSION}.tgz"; then
+            DOWNLOAD_OK=true
+        fi
     elif command -v wget &>/dev/null; then
-        wget -q "$DOCKER_URL" -O "/tmp/docker-${DOCKER_VERSION}.tgz"
+        if wget -q "$DOCKER_URL" -O "/tmp/docker-${DOCKER_VERSION}.tgz"; then
+            DOWNLOAD_OK=true
+        fi
     else
         log_warn "curl/wget not available, skipping Docker download"
     fi
 
-    if [ -f "/tmp/docker-${DOCKER_VERSION}.tgz" ]; then
+    if [ "$DOWNLOAD_OK" = true ] && [ -f "/tmp/docker-${DOCKER_VERSION}.tgz" ]; then
         log_info "Extracting Docker binaries..."
         mkdir -p "$DOCKER_DIR/bin"
         tar -xzf "/tmp/docker-${DOCKER_VERSION}.tgz" -C /tmp/
@@ -190,6 +202,9 @@ DAEMON_JSON
 
         chmod +x "$DOCKER_DIR/bin/"*
         log_ok "Docker ${DOCKER_VERSION} offline assets ready"
+    else
+        log_warn "Docker download failed, removing docker/ directory"
+        rm -rf "$DOCKER_DIR"
     fi
 else
     log_step "Step 2/4: Skip Docker (disabled)"
@@ -202,13 +217,13 @@ if [ "$INCLUDE_IPTABLES" = "true" ] && [ "$GOARCH" = "amd64" ]; then
     IPTABLES_DIR="$PACK_DIR/iptables-deb"
     mkdir -p "$IPTABLES_DIR"
 
-    # iptables offline debs for Debian 11/12/13 (from 1Panel project)
-    declare -A IPTABLES_URLS=(
-        ["debian11"]="https://resource.fit2cloud.com/network/iptables-deb/debian11/"
-        ["debian12"]="https://resource.fit2cloud.com/network/iptables-deb/debian12/"
-        ["debian13"]="https://resource.fit2cloud.com/network/iptables-deb/debian13/"
-    )
+    # iptables offline debs for Debian 11/12/13 (from 1Panel project resource)
+    declare -A IPTABLES_URLS
+    IPTABLES_URLS[debian11]="https://resource.fit2cloud.com/network/iptables-deb/debian11/"
+    IPTABLES_URLS[debian12]="https://resource.fit2cloud.com/network/iptables-deb/debian12/"
+    IPTABLES_URLS[debian13]="https://resource.fit2cloud.com/network/iptables-deb/debian13/"
 
+    set +e
     for debian_ver in debian11 debian12 debian13; do
         DEB_DIR="$IPTABLES_DIR/${debian_ver}"
         mkdir -p "$DEB_DIR"
@@ -226,6 +241,7 @@ if [ "$INCLUDE_IPTABLES" = "true" ] && [ "$GOARCH" = "amd64" ]; then
 
     # Remove empty dirs
     find "$IPTABLES_DIR" -type d -empty -delete 2>/dev/null || true
+    set -e
     log_ok "iptables debs downloaded"
 elif [ "$GOARCH" = "arm64" ]; then
     log_step "Step 3/4: Skip iptables (ARM64 uses different packages)"
