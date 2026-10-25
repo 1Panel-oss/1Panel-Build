@@ -48,9 +48,8 @@ jobs:
 
       - name: Build binaries
         run: |
-          if [ ! -d "1Panel-source/.git" ]; then \
-            git clone --depth 1 --branch dev-v2 https://github.com/1Panel-dev/1Panel.git 1Panel-source; \
-          fi
+          rm -rf 1Panel-source installer-source
+          git clone --depth 1 --branch dev-v2 https://github.com/1Panel-dev/1Panel.git 1Panel-source
           chmod +x scripts/build.sh
           ./scripts/build.sh --goos linux --goarch ${{ matrix.arch }}
 
