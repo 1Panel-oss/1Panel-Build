@@ -14,13 +14,15 @@ $RECYCLE.BIN/
 *.msp
 *.lnk
 
-# Temporary files
-tmp/
-tmp/**
+# Build output
+dist/
+dist/**
 
-# 1Panel source directory
+# 1Panel source directories (auto-managed)
 1Panel-source/
 1Panel-source/**
+installer-source/
+installer-source/**
 
 # IDE & Editor
 .idea/
@@ -28,8 +30,13 @@ tmp/**
 *.swp
 *.swo
 *~
-
-# OS generated files
 *.bak
 *.tmp
 *.temp
+
+# Artifact files in case of local builds
+*.tar.gz
+*.zip
+*.tgz
+*.deb
+*.log

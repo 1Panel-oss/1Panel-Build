@@ -1,0 +1,123 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version tag (e.g., v2.4.1). Empty = latest dev-v2'
+        required: false
+        default: ''
+        type: string
+
+env:
+  GO_VERSION: '1.27'
+  NODE_VERSION: '22'
+
+jobs:
+  build-and-package:
+    name: Build (${{ matrix.arch }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        arch: [amd64, arm64]
+      fail-fast: false
+    steps:
+      - name: Checkout scripts
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Determine version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            echo "VERSION=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
+          elif [ -n "${{ inputs.version }}" ]; then
+            echo "VERSION=${{ inputs.version }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "VERSION=latest" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build binaries
+        run: |
+          git clone --depth 1 --branch dev-v2 https://github.com/1Panel-dev/1Panel.git 1Panel-source
+          chmod +x scripts/build.sh
+          ./scripts/build.sh --goos linux --goarch ${{ matrix.arch }} --version "${{ steps.version.outputs.VERSION }}"
+
+      - name: Package offline installer
+        run: |
+          git clone --depth 1 --branch v2 https://github.com/1Panel-dev/installer.git installer-source
+          chmod +x scripts/release.sh
+          ./scripts/release.sh --goos linux --goarch ${{ matrix.arch }} --version "${{ steps.version.outputs.VERSION }}" --no-iptables
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: 1panel-offline-${{ matrix.arch }}
+          path: dist/*.tar.gz*
+          retention-days: 30
+
+  publish-release:
+    name: Publish Release
+    needs: build-and-package
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts/
+          pattern: 1panel-*
+
+      - name: Prepare release
+        run: |
+          mkdir -p release
+          find artifacts/ -name "*.tar.gz" -exec cp {} release/ \;
+          find artifacts/ -name "*.sha256" -exec cp {} release/ \;
+          ls -lh release/
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release/*
+          draft: false
+          prerelease: false
+          token: ${{ secrets.GITHUB_TOKEN }}
+          body: |
+            ## 1Panel v2 Offline Installer Package
+            
+            ### Components
+            - **1panel-core** — main controller binary
+            - **1panel-agent** — agent binary for remote nodes
+            - **install.sh** — installation script
+            - **1pctl** — control/management CLI
+            - **quick_start.sh** — quick setup script
+            - **lang/** — translations (en, zh, fa, pt-BR, ru)
+            - **initscript/** — systemd/init/openrc/procd service files
+            - **docker/** — offline Docker binaries
+            - **iptables-deb/** — iptables offline packages (if included)
+            
+            ### Architectures
+            - `linux-amd64` — for x86_64 servers
+            - `linux-arm64` — for ARM64 servers (Raspberry Pi, Ampere, etc.)
+            
+            ### Usage
+            ```bash
+            tar -xzf 1panel-v*-offline-linux-amd64.tar.gz
+            cd 1panel-v*-offline-linux-amd64/
+            chmod +x install.sh
+            sudo bash install.sh
+            ```
